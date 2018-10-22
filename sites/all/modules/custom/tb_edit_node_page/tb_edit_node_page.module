@@ -1,0 +1,39 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function tb_edit_node_page_menu() {
+    $items = array();
+
+    $items['callabsible/%node'] = array(
+        'title' => 'Node Edit',
+        'page callback' => '_tb_edit_node_page_nodeEditCallback',
+        'page arguments' => array(1),
+        'access callback' => TRUE,
+        'access arguments' => array('access content'),
+        'type' => MENU_CALLBACK,
+    );
+
+    return $items;
+}
+
+function _tb_edit_node_page_nodeEditCallback($node)
+{
+    //print_r($node);
+    module_load_include('inc', 'node', 'node.pages');
+    $form = drupal_get_form('link_node_form', $node);
+    $content = render($form);
+    $output = '';
+    $handle = t('Click to Collapse');
+
+    $output .= theme('ctools_collapsible', array('handle' => $handle, 'content' => $content, 'collapsed' => TRUE));
+    global $user;
+    if ($node->uid == $user->uid) {
+        return $output;
+    } else {
+        return 'no permissions';
+    }
+
+}
+

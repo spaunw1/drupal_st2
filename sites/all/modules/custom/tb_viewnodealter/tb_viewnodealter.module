@@ -1,0 +1,71 @@
+<?php
+
+/**
+ * Implements hook_node_view().
+ */
+function tb_viewnodealter_node_view($node, $view_mode) {
+  if ($view_mode == 'teaser' && $node->type == 'link') {
+
+    $node->content['links']['node']['#links']['node-readmore-custom'] =
+      array(
+        'title' => 'Edit',
+        'href' => 'callabsible/' . $node->nid,
+        'html' => 1,
+        'attributes' => array('rel' => 'tag', 'title' => 'edit _blank')
+      );
+
+    $links['edit_collapse']['title'] = theme('tb_viewnodealter_node_edit', array('parameter' => $node->nid));
+    $links['edit_collapse']['html'] = TRUE;
+    $node->content['links']['edit_collapse'] = array(
+      '#theme' => 'links__node__private',
+      '#links' => $links,
+      '#attributes' => array('class' => array('')),
+    );
+
+  }
+}
+
+/**
+ * theme register by hook_theme()
+ */
+
+function tb_viewnodealter_theme() {
+  return array(
+    'tb_viewnodealter_node_edit' => array(
+      'variables' => array('parameter' => NULL),
+    ),
+  );
+}
+
+/**
+ * Custom theme function
+ * @see hook_theme()
+ */
+function theme_tb_viewnodealter_node_edit($variables) {
+  $node = node_load($variables['parameter']); // var
+
+  module_load_include('inc', 'node', 'node.pages');
+  $form = drupal_get_form('link_node_form', $node); // var
+
+  $content = render($form); // var
+
+  $output = '';
+  $handle = '<div style="width: 100px; padding-top: 3px;">Click to EDIT</div>';
+  $output .= '<div style="float: left;">';
+  $output .= theme('ctools_collapsible', array(
+    'handle' => $handle,
+    'content' => $content,
+    'collapsed' => TRUE
+  ));
+  $output .= '</div>';
+  global $user;
+  if ($user->uid == $node->uid) {
+    return $output;
+  }
+
+}
+
+
+
+
+

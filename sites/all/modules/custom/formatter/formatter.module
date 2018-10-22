@@ -1,0 +1,213 @@
+<?php
+
+
+/**
+ * Implements hook_field_info().
+ */
+function formatter_field_info() {
+  return array(
+    'formatter_field' => array(
+      'label' => t('Pictures filtered'),
+      'description' => t("gallery of pictures w/ scales"),
+      //'settings' => array('allowed_values' => array(), 'allowed_values_function' => ''),
+      'default_widget' => 'formatter_field',
+      'default_formatter' => 'formatter_field',
+      'property_type' => 'formatter_field',
+    ),
+  );
+}
+
+;
+
+/**
+ * Implements hook_field_validate().
+ */
+function formatter_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+  if ($field['type'] == 'formatter_field') {
+    drupal_set_message(t('picture added'));
+  }
+}
+
+;
+
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function formatter_field_is_empty($item, $field) {
+  if ($field['type'] == 'formatter_field') {
+    return empty($item['formatter_field_name']) && empty($item['formatter_field_url']);
+  }
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function formatter_field_widget_info() {
+  return array(
+    'formatter_field' => array(
+      'label' => t('Pictures format'),
+      'field types' => array('formatter_field'),
+    ),
+  );
+}
+
+;
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function formatter_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  switch ($instance['widget']['type']) {
+    case 'formatter_field':
+      $fields = array(
+        'formatter_field_name' => t('Name'),
+        'formatter_field_url' => t('Url'),
+      );
+
+      foreach ($fields as $key => $label) {
+        switch ($key) {
+          case 'formatter_field_name':
+            $element[$key] = array(
+              '#type' => 'textfield',
+              '#title' => $label,
+              '#default_value' => isset($items[$delta][$key]) ? $items[$delta][$key] : '',
+              '#date_format' => 'd/m/Y'
+            );
+            break;
+          case 'formatter_field_url':
+            $element[$key] = array(
+              '#type' => 'textfield',
+              '#title' => $label,
+              '#default_value' => isset($items[$delta][$key]) ? $items[$delta][$key] : '',
+              '#date_format' => 'd/m/Y'
+            );
+            break;
+          default:
+            break;
+        }
+      }
+      break;
+  }
+
+  return $element;
+}
+
+;
+/**
+ * Implements hook_field_formatter_info().
+ */
+function formatter_field_formatter_info() {
+  return array(
+    'formatter_field' => array(
+      'label' => t('Scale'),
+      'field types' => array('formatter_field'),
+      'settings' => array('units_as' => '220x220'),
+    ),
+  );
+}
+
+;
+
+/**
+ * Implements hook_field_formatter_settings_summary().
+ */
+function formatter_field_formatter_settings_summary($field, $instance, $view_mode) {
+  $display = $instance['display'][$view_mode];
+  $settings = $display['settings'];
+
+  $summary = '';
+
+  if ($display['type'] == 'formatter_field') {
+
+    if ($settings['units_as'] == '480x480') {
+      $summary = t('Large (480x480)');
+    }
+    if ($settings['units_as'] == '220x220') {
+      $summary = t('Medium (220x220)');
+    }
+    if ($settings['units_as'] == '100x100') {
+      $summary = t('Thumbnail (100x100)');
+    }
+  }
+
+  return $summary;
+}
+
+/**
+ * Implements hook_field_formatter_settings_form().
+ */
+function formatter_field_formatter_settings_form($field, $instance, $view_mode, $form, &$form_state) {
+  $display = $instance['display'][$view_mode];
+  $settings = $display['settings'];
+
+  $form = array();
+
+  if ($display['type'] == 'formatter_field') {
+    $form['units_as'] = array(
+      '#title' => t('Show image'),
+      '#type' => 'select',
+      '#options' => array(
+        '480x480' => t('Large (480x480)'),
+        '220x220' => t('Medium (220x220)'),
+        '100x100' => t('Thumbnail (100x100)'),
+      ),
+      '#default_value' => $settings['units_as'],
+      '#required' => TRUE,
+    );
+  }
+
+  return $form;
+}
+
+function formatter_field_formatter_view($obj_type, $object, $field, $instance, $langcode, $items, $display) {
+  $node = menu_get_object();
+  $ar_photos = array();
+  $settings = $display['settings'];
+  //
+  if (!empty($node)) {
+    switch ($display['type']) {
+      case 'formatter_field':
+        foreach ($items as $key => $item) {
+          $ar_photos[$key]['name'] = $item['formatter_field_name'];
+          $ar_photos[$key]['url'] = $item['formatter_field_url'];
+        }
+        break;
+    }
+  }
+
+  if (!empty($ar_photos)) {
+    $output['#photos'] = $ar_photos;
+    $output['#format'] = $settings['units_as'];
+    $output['#theme'] = 'formatter_field';
+    return $output;
+  }
+  else {
+    drupal_set_message('no photo uploaded');
+    return '';
+  }
+}
+
+/**
+ * Implements hook_theme()
+ */
+function formatter_theme() {
+  return array(
+    'formatter_field' => array(
+      'path' => drupal_get_path('module', 'formatter'),
+      'template' => 'formatter_field',
+      'variables' => array(
+        'photos' => array(),
+        'format' => NULL,
+      ),
+    ),
+  );
+}
+
+function template_preprocess_formatter_field(&$variables) {
+
+  $gallery_css = drupal_get_path('module', 'formatter') . '/css/styles.css';
+  drupal_add_css($gallery_css);
+  $gallery_js = 'http://cdnjs.cloudflare.com/ajax/libs/fotorama/4.6.4/fotorama.js';
+  drupal_add_js($gallery_js);
+}

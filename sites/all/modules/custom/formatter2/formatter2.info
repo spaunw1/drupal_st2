@@ -1,0 +1,5 @@
+name = image/file field formatter
+description = field formatter
+version = VERSION
+core = 7.x
+;scripts[] = script.js

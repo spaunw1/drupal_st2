@@ -1,0 +1,125 @@
+<?php
+/**
+ * Implements hook_field_formatter_info().
+ */
+function formatter2_field_formatter_info() {
+  return array(
+    'formatter2_field' => array(
+      'label' => t('Gallery formatter'),
+      'field types' => array('image'),
+      'settings' => array('image_style' => '480x480', 'thumb_style' => '64x64'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_settings_summary().
+ */
+function formatter2_field_formatter_settings_summary($field, $instance, $view_mode) {
+  $display = $instance['display'][$view_mode];
+  $settings = $display['settings'];
+
+  $summary = '';
+  $summary .= ' Unit ' . $settings['image_style'];
+  $summary .= ' Thumb ' . $settings['thumb_style'];
+
+  return $summary;
+}
+
+/**
+ * Implements hook_field_formatter_settings_form().
+ */
+function formatter2_field_formatter_settings_form($field, $instance, $view_mode, $form, &$form_state) {
+  $display = $instance['display'][$view_mode];
+  $settings = $display['settings'];
+
+  $form = array();
+
+  if ($display['type'] == 'formatter2_field') {
+    $form['image_style'] = array(
+      '#title' => t('Units scale'),
+      '#type' => 'select',
+      '#options' => array(
+        '480x480' => t('Small (480x480)'),
+        '720x720' => t('Medium (720x720)'),
+      ),
+      '#default_value' => $settings['image_style'],
+      '#required' => TRUE,
+    );
+    $form['thumb_style'] = array(
+      '#title' => t('Thumbs scale'),
+      '#type' => 'select',
+      '#options' => array(
+        '64x64' => t('Small (64x64)'),
+        '72x72' => t('Medium (72x72)'),
+        '86x86' => t('Large (86x86)'),
+      ),
+      '#default_value' => $settings['thumb_style'],
+      '#required' => TRUE,
+    );
+  }
+
+  return $form;
+}
+
+function formatter2_field_formatter_view($obj_type, $object, $field, $instance, $langcode, $items, $display) {
+  $images = array();
+  $settings = $display['settings'];
+
+  foreach ($items as $key => $item) {
+    $images[$key] = $item['fid'];
+  }
+
+  $gallery_css = drupal_get_path('module', 'formatter2') . '/css/styles.css';
+  $gallery_js = drupal_get_path('module', 'formatter2') . '/js/script.js';
+
+  if (!empty($images)) {
+    $output['#photos'] = $images;
+    $output['#image_style'] = $settings['image_style'];
+    $output['#thumb_style'] = $settings['thumb_style'];
+    $output['#theme'] = 'formatter2_field';
+    $output['#attached'] = array(
+      'css' => array(
+        //'http://code.jquery.com/mobile/git/jquery.mobile-git.css',
+        $gallery_css,
+      ),
+      'js' => array(
+        //'http://code.jquery.com/mobile/1.4.5/jquery.mobile-1.4.5.min.js',
+        //'https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js',
+        $gallery_js,
+
+      )
+    );
+
+
+    return $output;
+  }
+}
+
+/**
+ * Implements hook_theme()
+ */
+function formatter2_theme() {
+  return array(
+    'formatter2_field' => array(
+      'path' => drupal_get_path('module', 'formatter2'),
+      'template' => 'formatter_field2',
+      'variables' => array(
+        'photos' => array(),
+        'image_style' => NULL,
+        'thumb_style' => NULL,
+      ),
+    ),
+  );
+}
+
+function template_preprocess_formatter2_field(&$variables) {
+
+  foreach ($variables['photos'] as $item) {
+    $file = file_load($item);
+    $url = $file->uri;
+    $variables['thumbs'][] = image_style_url($variables['thumb_style'], $url);
+    $variables['images'][] = image_style_url($variables['image_style'], $url);
+  }
+
+}

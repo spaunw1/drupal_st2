@@ -1,0 +1,6 @@
+name = Node editor outer
+
+description = Formapi d7
+version = VERSION
+core = 7.x
+;scripts[] = script.js

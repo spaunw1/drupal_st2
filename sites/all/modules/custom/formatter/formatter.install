@@ -1,0 +1,30 @@
+<?php
+/**
+ * Implements hook_field_schema().
+ */
+function formatter_field_schema($field) {
+    return array(
+        'columns' => array(
+            'formatter_field_id' => array(
+                'type' => 'serial',
+                'unsigned' => TRUE,
+                'not null' => TRUE,
+            ),
+            'formatter_field_name' => array(
+                'type' => 'varchar',
+                'length' => 500,
+                'not null' => FALSE,
+                'default' => NULL,
+            ),
+            'formatter_field_url' => array(
+                'type' => 'varchar',
+                'length' => 500,
+                'not null' => FALSE,
+                'default' => NULL,
+            ),
+        ),
+        'indexes' => array(
+            'formatter_field_id' => array('formatter_field_id'),
+        ),
+    );
+}

@@ -1,0 +1,62 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function link_form_menu() {
+    $items = array();
+    $items['link_form/form'] = array(
+        'title' => 'MYLINKS',
+        'page callback' => 'mylink_editor',
+        'access callback' => TRUE,
+        'type' => MENU_NORMAL_ITEM,
+    );
+    return $items;
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function link_form_form_alter(&$form, &$form_state, $form_id)
+{
+    if ($form_id == 'link_node_form') {
+        $files = (isset($form_state['build_info']['files'])) ? $form_state['build_info']['files'] : array();
+        $files[] = drupal_get_path('module', 'node') . '/node.pages.inc';
+        $form_state['build_info']['files'] = $files;
+        $form['#validate'][] = 'link_form_form_validate';
+    }
+}
+
+
+/**
+ * link-node-form, link-node-view-list render
+ */
+function mylink_editor(){
+    $html = '';
+    global $user;
+    module_load_include('inc', 'node', 'node.pages');
+    $form = node_add('link');
+    $html .= drupal_render($form);
+
+    $ar_nids = node_load_multiple(array(), array('type' => 'link', 'uid' => $user->uid));
+    if (!empty($ar_nids)) {
+        $view = node_view_multiple($ar_nids);
+        $html .= '<br><h2>My LINKS</h2>';
+        $html .=  drupal_render($view);
+    }
+
+    return $html;
+
+}
+
+/**
+ * Implements hook_form_validate().
+ */
+function link_form_form_validate(&$form, &$form_state) {
+    $valid = filter_var($form_state['values']['field_url']['und'][0]['value'], FILTER_VALIDATE_URL);
+    if (($valid == false) && (!empty($form_state['values']['field_url']['und'][0]['value']))) {
+        $form_state['complete form']['field_url']['und'][0]['value']['#title'] =  '<span class="privacy-error">fill URL correctly</span>';
+        form_set_error('field_url', t('You have added an invalid URL.'));
+    }
+    return $form;
+}

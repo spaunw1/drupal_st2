@@ -1,0 +1,433 @@
+<?php
+
+/**
+ * @file
+ * A tremendously simple access control module -- it allows users to mark
+ * individual nodes as private; users with 'access private content' perms can
+ * read these nodes, while others cannot.
+ */
+
+/**
+ * STRATEGY
+ * 1) Node grants are not helpful for this module because they give extra access, whereas we need to remove it.
+ * 2) Hence use hook_node_access as far as possible.  In this hook it's easy to selectively remove access with NODE_ACCESS_DENY.
+ * 3) However hook_node_access is not called for "node listings" - bulk read requests such as views.
+ *    These must be handled via node grants.
+ */
+
+define('PRIVATE_DISABLED', 0);
+define('PRIVATE_ALLOWED', 1);
+define('PRIVATE_AUTOMATIC', 2);
+define('PRIVATE_ALWAYS', 3);
+
+define('PRIVATE_GRANT_ALL', 1);
+
+/**
+ * Simple function to make sure we don't respond with grants when disabling
+ * ourselves.
+ */
+function private_disabling($set = NULL) {
+  static $disabling = FALSE;
+  if ($set !== NULL) {
+    $disabling = $set;
+  }
+
+  return $disabling;
+}
+
+/**
+ * Implements hook_permission().
+ *
+ * In this example, we will use a simple permission to determine whether a user
+ * has access to "private" content. This permission is defined here.
+ */
+function private_permission() {
+  return array(
+    'mark content as private' => array(
+      'title' => t('Mark content as private'),
+      'description' => t('Make content only viewable by people with access to view private content'),
+    ),
+    'access private content' => array(
+      'title' => t('Access private content'),
+      'description' => t('Access any content marked as private'),
+    ),
+    'edit private content' => array(
+      'title' => t('Edit private content'),
+      'description' => t('Edit content marked as private'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_node_grants().
+ *
+ * Tell the node access system what GIDs the user belongs to for each realm.
+ */
+function private_node_grants($account, $op) {
+  $grants = array();
+
+  if ($op == 'view') {
+
+    if ($account->uid != 0) {
+      // Grant to the author for own content.
+      $grants['private_author'] = array($account->uid);
+    }
+
+    // Grant for private content.
+    if (user_access('access private content', $account)) {
+      $grants['private_view'] = array(PRIVATE_GRANT_ALL);
+    }
+  }
+
+  return $grants;
+}
+
+/**
+ * Implements hook_node_access_records().
+ *
+ * All node access modules must implement this hook. If the module is
+ * interested in the privacy of the node passed in, return a list
+ * of node access values for each grant ID we offer.
+ */
+function private_node_access_records($node) {
+  if (private_disabling()) {
+    return;
+  }
+
+  // This code typically runs when something has changed, so make sure the database entry is up to date.
+  private_node_update($node);
+
+  // See the README.txt file and the comment "STRATEGY" at the top of this file for background explanation.
+  // 1) Ignore update permissions here as they are handled in hook_access.
+  //    It's not safe to grant update access here to a private node because we cannot be sure the user is entitled.
+  // 2) Ignore any nodes where we don't wish to alter the default access; other modules may grants access,
+  //    or else core provides the correct default access.
+  $grants = array();
+
+  if ($node->status && $node->private) {
+    // Grant read access to users with 'access private content'.
+    $grants[] = array(
+      'realm' => 'private_view',
+      'gid' => PRIVATE_GRANT_ALL,
+      'grant_view' => 1,
+      'grant_update' => 0,
+      'grant_delete' => 0,
+      'priority' => 0,
+    );
+
+    // Grant read access to the owner, but not ANONYMOUS user.
+    if ($node->uid != 0) {
+      $grants[] = array(
+        'realm' => 'private_author',
+        'gid' => $node->uid,
+        'grant_view' => 1,
+        'grant_update' => 0,
+        'grant_delete' => 0,
+        'priority' => 0,
+      );
+    }
+
+    // Otherwise, deny read access for private nodes.
+  }
+
+  return $grants;
+}
+
+/**
+ * Implements hook_node_access().
+ */
+function private_node_access($node, $op, $account) {
+  if (is_string($node)) {
+    return NODE_ACCESS_IGNORE;
+  }
+
+  // Apply restrictions on private nodes, except for the owner.
+  $owner = ($account->uid != 0) && ($node->uid == $account->uid);
+  if ($node->private && !$owner) {
+    if (($op == 'update') || ($op == 'delete')) {
+      if (!user_access('edit private content', $account)) {
+        // Missing access for write.
+        return NODE_ACCESS_DENY;
+      }
+    }
+    elseif ($op == 'view') {
+      if (!user_access('access private content', $account)) {
+        // Missing access for view.
+        return NODE_ACCESS_DENY;
+      }
+    }
+  }
+
+  // Otherwise, fall back to the pre-existing access rules in core/modules.
+  // Note that this module never grants extra access, it only removes it.
+  return NODE_ACCESS_IGNORE;
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * This module adds a simple checkbox to the node to edit the private setting.
+ */
+function private_form_alter(&$form, &$form_state, $form_id) {
+  if (!empty($form['#node_edit_form'])) {
+    $node = $form['#node'];
+
+    // Won't have the ->private field set when creating a new node.
+    private_get_default($node);
+
+    $form['privacy'] = array(
+      '#type' => 'fieldset',
+      '#access' => user_access('mark content as private'),
+      '#title' => t('Privacy options'),
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+      '#group' => 'additional_settings',
+      '#attributes' => array(
+        'class' => array('node-form-private'),
+      ),
+      '#attached' => array(
+        'js' => array(drupal_get_path('module', 'private') . '/private.node.js'),
+      ),
+      '#weight' => 95,
+    );
+
+    $form['privacy']['private'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Private'),
+      '#attributes' => array('title' => t('When checked, only users with proper access permissions will be able to see this post.')),
+      '#default_value' => $node->private,
+      '#disabled' => $node->privateLocked,
+    );
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function private_form_node_type_form_alter(&$form, &$form_state, $form_id) {
+  if (isset($form['type'])) {
+    $form['workflow']['private'] = array(
+      '#type' => 'radios',
+      '#title' => t('Privacy'),
+      '#description' => t('Privacy settings for nodes of this content type.  Changing this value will update all existing nodes and rebuild access permissions.'),
+      '#options' => array(
+        PRIVATE_DISABLED => t('Disabled (always public)'),
+        PRIVATE_ALLOWED => t('Enabled (public by default)'),
+        PRIVATE_AUTOMATIC => t('Enabled (private by default)'),
+        PRIVATE_ALWAYS => t('Hidden (always private)'),
+      ),
+      '#default_value' => variable_get('private_' . $form['#node_type']->type, PRIVATE_ALLOWED),
+    );
+    $form['#submit'][] = 'private_node_type_submit';
+  }
+}
+
+/**
+ * Submit handler for node type edit form.
+ */
+function private_node_type_submit($form, &$form_state) {
+  if ($form_state['values']['private'] != $form['workflow']['private']['#default_value']) {
+    node_access_needs_rebuild(TRUE);
+  }
+}
+
+/**
+ * Implements hook_node_load().
+ */
+function private_node_load($nodes, $types) {
+  foreach ($nodes as $nid => $node) {
+    // Get a default in case the database entry isn't set.
+    private_get_default($node);
+
+    if (!$node->privateLocked) {
+      // Skip the query if the content type doesn't enable per node settings.
+      $queryNids[] = $nid;
+    }
+  }
+
+  if (isset($queryNids)) {
+    $result = db_query('SELECT * FROM {private} WHERE nid IN(:nids)', array(':nids' => $queryNids));
+    foreach ($result as $record) {
+      $nodes[$record->nid]->private = $record->private;
+    }
+  }
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function private_node_delete($node) {
+  db_delete('private')
+    ->condition('nid', $node->nid)
+    ->execute();
+}
+
+/**
+ * Implements hook_node_insert().
+ */
+function private_node_insert($node) {
+  // Node created in code won't have the ->private field set.
+  private_get_default($node);
+
+  private_node_update($node);
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function private_node_update($node) {
+  db_merge('private')
+    ->key(array('nid' => $node->nid))
+    ->fields(array(
+      'nid' => $node->nid,
+      'private' => (int)$node->private,
+    ))
+    ->execute();
+}
+
+/**
+ * Implements hook_node_type_delete().
+ */
+function private_node_type_delete($info) {
+  variable_del('private_' . $info->type);
+}
+
+/**
+ * Implements hook_node_view().
+ */
+function private_node_view($node, $view_mode) {
+  if ($node->private) {
+    $links['private_icon']['title'] = theme('private_node_link');
+    $links['private_icon']['html'] = TRUE;
+    $node->content['links']['private'] = array(
+      '#theme' => 'links__node__private',
+      '#links' => $links,
+      '#attributes' => array('class' => array('links', 'inline')),
+    );
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function private_theme() {
+  return array(
+    'private_node_link' => array(
+      'variables' => array(),
+    ),
+  );
+}
+
+/**
+ * Custom theme function
+ * @see private_theme()
+ */
+function theme_private_node_link() {
+  $vars = array(
+      'path' => drupal_get_path('module', 'private') . '/icon_key.gif',
+      'width' => '16',
+      'height' => '16',
+      'alt' => t('Private'),
+      'title' => t('This content is private.')
+  );
+  $html = '';
+  $html .= t('Private ');
+  $html .= theme('image', $vars);
+  return $html;
+}
+
+
+/**
+ * Implements hook_action_info().
+ */
+function private_action_info() {
+  return array(
+    'private_set_private_action' => array(
+      'type' => 'node',
+      'label' => t('Make private'),
+      'configurable' => FALSE,
+      'triggers' => array(
+        'node_insert',
+        'node_update',
+      ),
+    ),
+    'private_set_public_action' => array(
+      'type' => 'node',
+      'label' => t('Make public'),
+      'configurable' => FALSE,
+      'triggers' => array(
+        'node_insert',
+        'node_update',
+      ),
+    ),
+  );
+}
+
+/**
+ * Implementation of a Drupal action.
+ */
+function private_set_public_action(&$node, $context = array()) {
+  $nids = array($node->nid);
+  private_node_mark($nids, 0);
+}
+
+/**
+ * Implementation of a Drupal action.
+ */
+function private_set_private_action(&$node, $context = array()) {
+  $nids = array($node->nid);
+  private_node_mark($nids, 1);
+}
+
+/**
+ * Implements hook_node_operations().
+ */
+function private_node_operations() {
+  $operations = array(
+    'private_mark_as_private' => array(
+      'label' => t('Make private'),
+      'callback' => 'private_node_mark',
+      'callback arguments' => 1,
+    ),
+    'private_mark_as_public' => array(
+      'label' => t('Make public'),
+      'callback' => 'private_node_mark',
+      'callback arguments' => 0,
+    ),
+  );
+  return $operations;
+}
+
+/**
+ * Callback for 'Mark as private' node operation
+ */
+function private_node_mark($nids, $private) {
+  foreach (node_load_multiple($nids, TRUE) as $node) {
+    if (!$node->privateLocked) {
+      $node->private = $private;
+      private_node_update($node);
+      node_access_acquire_grants($node);
+    }
+  }
+}
+
+/**
+ * Apply default private settings to node based on the content type.
+ */
+function private_get_default($node) {
+  if (!isset($node->private)) {
+    $typeSetting = variable_get('private_' . $node->type, PRIVATE_ALLOWED);
+    $node->private = ($typeSetting == PRIVATE_ALWAYS) || ($typeSetting == PRIVATE_AUTOMATIC);
+    $node->privateLocked = ($typeSetting == PRIVATE_ALWAYS) || ($typeSetting == PRIVATE_DISABLED);
+  }
+}
+
+/**
+ * Tell Views that we're down with it, yo.
+ */
+function private_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'private'),
+  );
+}
